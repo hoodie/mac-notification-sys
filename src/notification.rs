@@ -2,9 +2,12 @@
 
 use objc_foundation::{INSDictionary, INSString, NSDictionary, NSString};
 use objc_id::Id;
-use std::default::Default;
-use std::ops::Deref;
-use std::path::PathBuf;
+
+use chrono::offset::Utc;
+use std::{default::Default, ops::Deref, path::PathBuf};
+
+#[allow(unused_imports)]
+use crate::{bail, ensure, error::NotificationError};
 
 /// Possible actions accessible through the main button of the notification
 pub enum MainButton<'a> {
@@ -40,6 +43,9 @@ pub enum MainButton<'a> {
 /// Options to further customize the notification
 #[derive(Default)]
 pub struct Notification<'a> {
+    title: &'a str,
+    subtitle: Option<&'a str>,
+    message: &'a str,
     pub(crate) main_button: Option<MainButton<'a>>,
     pub(crate) close_button: Option<&'a str>,
     pub(crate) app_icon: Option<&'a str>,
@@ -54,6 +60,25 @@ impl<'a> Notification<'a> {
     pub fn new() -> Self {
         Default::default()
     }
+
+    /// Set title
+    pub fn title(&'a mut self, title: &'a str) -> &mut Self {
+        self.title = title;
+        self
+     }
+
+    /// Set title
+    pub fn subtitle(&'a mut self, subtitle: &'a str) -> &mut Self {
+        self.subtitle = Some(subtitle);
+        self
+     }
+
+
+    /// Set message
+    pub fn message(&'a mut self, message: &'a str) -> &mut Self {
+        self.message = message;
+        self
+     }
 
     /// Allow actions through a main button
     ///
@@ -203,8 +228,61 @@ impl<'a> Notification<'a> {
         ];
         NSDictionary::from_keys_and_objects(keys, vals)
     }
+
+    /// Show the notification
+    pub fn show(&self) -> super::NotificationResult<NotificationResponse> {
+        send_notification(&self)
+    }
 }
 
+/// Delivers a new notification
+///
+/// Returns a `NotificationError` if a notification could not be delivered
+///
+/// # Example:
+///
+/// ```no_run
+/// # use mac_notification_sys::*;
+/// // deliver a silent notification
+/// let _ = send_notification("Title", None, "This is the body", None).unwrap();
+/// ```
+pub fn send_notification(
+    notification: &Notification,
+) -> super::NotificationResult<NotificationResponse> {
+    if let Some(delivery_date) = notification.delivery_date {
+        ensure!(
+            delivery_date >= Utc::now().timestamp() as f64,
+            NotificationError::ScheduleInThePast
+        );
+    }
+
+    let options = notification.to_dictionary();
+
+    unsafe {
+        if !crate::APPLICATION_SET {
+            let bundle = crate::get_bundle_identifier_or_default("use_default");
+            crate::set_application(&bundle).unwrap();
+            crate::APPLICATION_SET = true;
+        }
+        let dictionary_response = crate::sys::sendNotification(
+            NSString::from_str(notification.title).deref(),
+            NSString::from_str(notification.subtitle.unwrap_or("")).deref(),
+            NSString::from_str(notification.message).deref(),
+            options.deref(),
+        );
+        ensure!(
+            dictionary_response
+                .deref()
+                .object_for(NSString::from_str("error").deref())
+                .is_none(),
+            NotificationError::UnableToDeliver
+        );
+
+        let response = NotificationResponse::from_dictionary(dictionary_response);
+
+        Ok(response)
+    }
+}
 /// Response from the Notification
 #[derive(Debug)]
 pub enum NotificationResponse {
