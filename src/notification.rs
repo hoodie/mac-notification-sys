@@ -7,7 +7,9 @@ use std::ops::Deref;
 use std::path::PathBuf;
 
 use crate::error::{NotificationError, NotificationResult};
-use crate::{ensure, ensure_application_set, send_notification_delegate, sys};
+use crate::{
+    block_for_notification, ensure, ensure_application_set, send_notification_delegate, sys,
+};
 
 /// Possible actions accessible through the main button of the notification
 #[derive(Clone, Debug)]
@@ -290,7 +292,6 @@ impl<'a> Notification<'a> {
     pub fn send_delegated(&self) -> NotificationResult<NotificationHandle> {
         send_notification_delegate(self.title, self.subtitle, self.message, Some(self))
     }
-
 }
 
 #[derive(Debug)]
@@ -299,6 +300,10 @@ pub struct NotificationHandle(pub(crate) sys::Handle);
 impl NotificationHandle {
     pub(crate) fn as_inner(&self) -> &sys::Handle {
         &self.0
+    }
+
+    pub fn wait(self) -> NotificationResult<NotificationResponse> {
+        block_for_notification(self)
     }
 }
 

@@ -152,7 +152,7 @@ pub fn block_for_notification_in_background(
 }
 
 #[allow(missing_docs)]
-pub fn block_for_notification(
+pub(crate) fn block_for_notification(
     handle: NotificationHandle,
 ) -> NotificationResult<NotificationResponse> {
     let dictionary_response =

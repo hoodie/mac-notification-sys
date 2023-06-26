@@ -15,29 +15,9 @@ fn main() {
         .unwrap();
 
     println!("I just sent a notification and I can still do stuff...");
-    // let (response_thread, rx) = block_for_notification_in_background(handle);
-    let response = block_for_notification(handle);
+
+    let response = handle.wait();
     println!("...this only shows once you acknowledge the notification because we blocked the main thread");
-
-    // for _ in 0..10 {
-    //     std::thread::sleep(std::time::Duration::from_secs(1));
-
-    //     match rx.try_recv() {
-    //         Ok(response) => {
-    //             println!("{:?}", response);
-    //             break;
-    //         }
-    //         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-    //             println!("disconnected")
-    //         }
-    //         Err(std::sync::mpsc::TryRecvError::Empty) => {
-    //             println!("empty")
-    //         }
-    //     }
-    // }
-
-    // let response = rx.recv().unwrap();
-    // let response = response_thread.join().unwrap();
 
     match response {
         // Requires main_button to be a MainButton::SingleAction or MainButton::DropdownActions
@@ -57,9 +37,9 @@ fn main() {
         Ok(NotificationResponse::Reply(response)) => {
             println!("Replied to the notification with {}", response)
         }
-        Ok(NotificationResponse::None) => println!("No interaction with the notification occured"),
+        Ok(NotificationResponse::None) => {
+            println!("No interaction with the notification occured")
+        }
         _ => {}
     };
-
-    // let _ = dbg!(response_thread.join());
 }
