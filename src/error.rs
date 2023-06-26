@@ -1,7 +1,7 @@
 //! Custom errors for mac-notification-sys.
 
-use std::fmt;
 use std::error;
+use std::fmt;
 
 /// Custom Result type for mac-notification-sys.
 pub type NotificationResult<T> = Result<T, Error>;
@@ -9,7 +9,7 @@ pub type NotificationResult<T> = Result<T, Error>;
 mod application {
     use super::*;
     /// Errors that can occur setting the Bundle Identifier.
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub enum ApplicationError {
         /// The application name is already set.
         AlreadySet(String),
@@ -21,20 +21,26 @@ mod application {
     impl fmt::Display for ApplicationError {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             match self {
-                ApplicationError::AlreadySet(e) => write!(f, "Application '{}' can only be set once.", e),
-                ApplicationError::CouldNotSet(e) => write!(f, "Could not set application '{}', using default \"com.apple.Termial\"", e),
+                ApplicationError::AlreadySet(e) => {
+                    write!(f, "Application '{}' can only be set once.", e)
+                }
+                ApplicationError::CouldNotSet(e) => write!(
+                    f,
+                    "Could not set application '{}', using default \"com.apple.Termial\"",
+                    e
+                ),
             }
         }
     }
 
-    impl error::Error for ApplicationError { }
+    impl error::Error for ApplicationError {}
 }
 
 mod notification {
     use super::*;
 
     /// Errors that can occur while interacting with the NSUserNotificationCenter.
-    #[derive(Debug)]
+    #[derive(Clone, Debug)]
     pub enum NotificationError {
         /// Notifications can not be scheduled in the past.
         ScheduleInThePast,
@@ -45,29 +51,31 @@ mod notification {
         /// Delivering a notification caused an error.
         UnableToDeliver,
     }
+
     impl fmt::Display for NotificationError {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            use NotificationError::*;
             match self {
-                NotificationError::ScheduleInThePast => write!(f, "Can not schedule notification in the past"),
-                NotificationError::UnableToSchedule => write!(f, "Could not schedule notification"),
-                NotificationError::UnableToDeliver => write!(f, "Could not deliver notification"),
+                ScheduleInThePast => write!(f, "Can not schedule notification in the past"),
+                UnableToSchedule => write!(f, "Could not schedule notification"),
+                UnableToDeliver => write!(f, "Could not deliver notification"),
             }
         }
     }
 
-    impl error::Error for NotificationError { }
+    impl error::Error for NotificationError {}
 }
 
 pub use self::application::ApplicationError;
 pub use self::notification::NotificationError;
 
 /// Our local error Type
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     /// Application related Error
     Application(ApplicationError),
     /// Notification related Error
-    Notification(NotificationError)
+    Notification(NotificationError),
 }
 
 impl fmt::Display for Error {

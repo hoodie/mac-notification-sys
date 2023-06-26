@@ -7,7 +7,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 
 use crate::error::{NotificationError, NotificationResult};
-use crate::{ensure, ensure_application_set, sys};
+use crate::{ensure, ensure_application_set, send_notification_delegate, sys};
 
 /// Possible actions accessible through the main button of the notification
 #[derive(Clone, Debug)]
@@ -285,10 +285,25 @@ impl<'a> Notification<'a> {
 
         Ok(response)
     }
+
+    #[allow(missing_docs)]
+    pub fn send_delegated(&self) -> NotificationResult<NotificationHandle> {
+        send_notification_delegate(self.title, self.subtitle, self.message, Some(self))
+    }
+
+}
+
+#[derive(Debug)]
+pub struct NotificationHandle(pub(crate) sys::Handle);
+
+impl NotificationHandle {
+    pub(crate) fn as_inner(&self) -> &sys::Handle {
+        &self.0
+    }
 }
 
 /// Response from the Notification
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum NotificationResponse {
     /// No interaction has occured
     None,
