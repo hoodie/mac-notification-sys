@@ -3,6 +3,8 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 
+#import <UserNotifications/UserNotifications.h>
+
 NSString* fakeBundleIdentifier = nil;
 
 @implementation NSBundle (swizzle)

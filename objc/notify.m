@@ -29,6 +29,39 @@ BOOL setApplication(NSString* newbundleIdentifier) {
 // sendNotification(title: &str, subtitle: &str, message: &str, options: Notification) -> NotificationResult<()>
 NSDictionary* sendNotification(NSString* title, NSString* subtitle, NSString* message, NSDictionary* options) {
     @autoreleasepool {
+
+        UNUserNotificationCenter* center = [UNUserNotificationCenter currentNotificationCenter];
+
+        // [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert + UNAuthorizationOptionSound)
+        //                       completionHandler:^(BOOL granted, NSError* _Nullable error) {
+        //                         // Enable or disable features based on authorization.
+        //                         NSLog(@"Completed %s with error %@", granted ? "true" : "false", [error localizedDescription]);
+        //                       }];
+
+        // UNMutableNotificationContent* content = [[UNMutableNotificationContent alloc] init];
+        // content.title = @"Notification Title";
+        // content.body = @"Notification Description";
+        // content.sound = [UNNotificationSound defaultSound];
+
+        // UNNotificationRequest* request = [UNNotificationRequest requestWithIdentifier:@"UniqueIdentifier" content:content trigger:nil];
+        // [center addNotificationRequest:request
+        //          withCompletionHandler:^(NSError* _Nullable error) {
+        //            if (error != nil) {
+        //                NSLog(@"Error: %@", error.localizedDescription);
+        //            }
+        //          }];
+
+        // // Run the main event loop to keep the program running and display the notification
+        // NSRunLoop* runLoop = [NSRunLoop currentRunLoop];
+        // [runLoop run];
+
+        NSDictionary* dictionary = @ {};
+        return dictionary;
+    }
+}
+
+NSDictionary* sendNotification_old(NSString* title, NSString* subtitle, NSString* message, NSDictionary* options) {
+    @autoreleasepool {
         // For a list of available notification options, see https://developer.apple.com/documentation/foundation/nsusernotification?language=objc
 
         NSUserNotificationCenter* notificationCenter = [NSUserNotificationCenter defaultUserNotificationCenter];

@@ -8,7 +8,8 @@ fn main() {
         let min_version = match env::var(DEPLOYMENT_TARGET_VAR) {
             Ok(ver) => ver,
             Err(_) => String::from(match env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
-                "x86_64" => "10.8",  // NSUserNotificationCenter first showed up here.
+                // "x86_64" => "10.8",  // NSUserNotificationCenter first showed up here.
+                "x86_64" => "10.14",  // 'UNUserNotificationCenter' has been  introduced in macOS 10.14
                 "aarch64" => "11.0", // Apple silicon started here.
                 arch => panic!("unknown arch: {}", arch),
             }),
@@ -17,7 +18,7 @@ fn main() {
         cc::Build::new()
             .file("objc/notify.m")
             .flag("-fmodules")
-            //.flag("-Wno-deprecated-declarations")
+            .flag("-Wno-deprecated-declarations")
             // `cc` doesn't try to pick up on this automatically, but `clang` needs it to
             // generate a "correct" Objective-C symbol table which better matches XCode.
             // See https://github.com/h4llow3En/mac-notification-sys/issues/45.
