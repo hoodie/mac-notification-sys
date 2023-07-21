@@ -27,16 +27,74 @@ BOOL setApplication(NSString* newbundleIdentifier) {
 }
 
 // sendNotification(title: &str, subtitle: &str, message: &str, options: Notification) -> NotificationResult<()>
+// TODO: expose me and pass in a block via https://docs.rs/block/latest/block/
+NSDictionary* requestAuthorization() {
+    @autoreleasepool {
+
+        UNUserNotificationCenter* center = [UNUserNotificationCenter currentNotificationCenter];
+
+        // https://developer.apple.com/documentation/usernotifications/unauthorizationoptions?language=objc
+        [center requestAuthorizationWithOptions:(
+                                                    UNAuthorizationOptionBadge // The ability to update the app’s badge.
+                                                    | UNAuthorizationOptionSound // The ability to play sounds.
+                                                    | UNAuthorizationOptionAlert // The ability to display alerts.
+                                                    | UNAuthorizationOptionCarPlay // The ability to display notifications in a CarPlay environment.
+                                                    | UNAuthorizationOptionCriticalAlert // The ability to play sounds for critical alerts.
+                                                    | UNAuthorizationOptionProvidesAppNotificationSettings // An option indicating the system should display a button for in-app notification settings.
+                                                    | UNAuthorizationOptionProvisional // The ability to post noninterrupting notifications provisionally to the Notification Center.
+
+                                                    )
+                              completionHandler:^(BOOL granted, NSError* _Nullable error) {
+                                // Enable or disable features based on authorization.
+                                NSLog(@"Completed %s with error %@", granted ? "true" : "false", [error localizedDescription]);
+                              }];
+    }
+}
+
+// sendNotification(title: &str, subtitle: &str, message: &str, options: Notification) -> NotificationResult<()>
 NSDictionary* sendNotification(NSString* title, NSString* subtitle, NSString* message, NSDictionary* options) {
     @autoreleasepool {
 
         UNUserNotificationCenter* center = [UNUserNotificationCenter currentNotificationCenter];
 
-        // [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert + UNAuthorizationOptionSound)
-        //                       completionHandler:^(BOOL granted, NSError* _Nullable error) {
-        //                         // Enable or disable features based on authorization.
-        //                         NSLog(@"Completed %s with error %@", granted ? "true" : "false", [error localizedDescription]);
-        //                       }];
+        // https://developer.apple.com/documentation/usernotifications/unauthorizationoptions?language=objc
+        [center requestAuthorizationWithOptions:(
+                                                    UNAuthorizationOptionBadge // The ability to update the app’s badge.
+                                                    | UNAuthorizationOptionSound // The ability to play sounds.
+                                                    | UNAuthorizationOptionAlert // The ability to display alerts.
+                                                    | UNAuthorizationOptionCarPlay // The ability to display notifications in a CarPlay environment.
+                                                    | UNAuthorizationOptionCriticalAlert // The ability to play sounds for critical alerts.
+                                                    | UNAuthorizationOptionProvidesAppNotificationSettings // An option indicating the system should display a button for in-app notification settings.
+                                                    | UNAuthorizationOptionProvisional // The ability to post noninterrupting notifications provisionally to the Notification Center.
+
+                                                    )
+                              completionHandler:^(BOOL granted, NSError* _Nullable error) {
+                                // Enable or disable features based on authorization.
+                                NSLog(@"Completed %s with error %@", granted ? "true" : "false", [error localizedDescription]);
+                              }];
+
+        [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings* settings) {
+          // Handle notification settings
+          if (settings.authorizationStatus == UNAuthorizationStatusAuthorized) {
+              // User has granted authorization to show notifications
+              NSLog(@"User has granted notification authorization");
+
+              if (settings.alertSetting == UNNotificationSettingEnabled) {
+                  // Notifications with alerts are allowed
+                  NSLog(@"Alert notifications are allowed");
+              } else {
+                  // Notifications with alerts are not allowed
+                  NSLog(@"Alert notifications are not allowed");
+              }
+
+              // Continue with further logic based on other settings if needed
+          } else {
+              // User has not granted authorization to show notifications
+              NSLog(@"User has not granted notification authorization");
+          }
+        }];
+
+        // [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.notifications"]];
 
         // UNMutableNotificationContent* content = [[UNMutableNotificationContent alloc] init];
         // content.title = @"Notification Title";
@@ -54,6 +112,28 @@ NSDictionary* sendNotification(NSString* title, NSString* subtitle, NSString* me
         // // Run the main event loop to keep the program running and display the notification
         // NSRunLoop* runLoop = [NSRunLoop currentRunLoop];
         // [runLoop run];
+
+        // Create a notification content object
+        UNMutableNotificationContent* content = [[UNMutableNotificationContent alloc] init];
+        content.title = title;
+        content.subtitle = subtitle;
+        content.body = message;
+
+        // Create a notification trigger for immediate delivery
+        UNTimeIntervalNotificationTrigger* trigger = [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:1 repeats:NO];
+
+        // Create a notification request with the content and trigger
+        UNNotificationRequest* request = [UNNotificationRequest requestWithIdentifier:@"uniqueIdentifier" content:content trigger:trigger];
+
+        // Schedule the notification request
+        [center addNotificationRequest:request
+                 withCompletionHandler:^(NSError* _Nullable error) {
+                   if (error) {
+                       NSLog(@"Failed to schedule notification: %@", error);
+                   } else {
+                       NSLog(@"Notification scheduled successfully");
+                   }
+                 }];
 
         NSDictionary* dictionary = @ {};
         return dictionary;
