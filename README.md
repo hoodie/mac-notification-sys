@@ -26,7 +26,7 @@ mac-notification-sys = "0.5"
 
 ## Documentation
 
-The documentation can be found [here](https://h4llow3en.github.io/mac-notification-sys/mac_notification_sys/)
+The documentation can be found [here](https://docs.rs/mac_notification_sys/)
 
 ## RunLoop
 
@@ -44,7 +44,7 @@ you will get `bundleProxyForCurrentProcess is nil` error if you didn't run the a
 
 Also you have to code sign the bundle to enable the user notification. Otherwise you will get the
 `Notifications are not allowed for this application` error message.
-
+linux
 You can use Xcode sandbox entitlements to enable user notifications when you are developing an application.
 See the `bundle/run.sh` file to get an idea about the bundling a development app.
 
@@ -80,7 +80,7 @@ Also a file called `simple.log` will create with the output.
  - [@PandawanFr](https://github.com/PandawanFr)
  - [Didrik Nordström](https://github.com/betamos)
 
-Any help in form of descriptive and friendly [issues](https://github.com/h4llow3En/mac-notification-sys/issues) or comprehensive pull requests are welcome! 
+Any help in form of descriptive and friendly [issues](https://github.com/h4llow3En/mac-notification-sys/issues) or comprehensive pull requests are welcome!
 
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in mac-notification-sys by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

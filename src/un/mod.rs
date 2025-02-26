@@ -85,7 +85,7 @@ pub async fn request_authorization(options: AuthorizationOptions) -> Result<(), 
 /// Updating the badge count of the app's icon
 pub async fn set_badge_count(count: usize) -> Result<(), NotificationError> {
     let av = *APPLE_VERSION;
-    #[cfg(not(watchos))]
+    #[cfg(not(target_os="watchos"))]
     if av >= (AppleOS::IOS, 16, 0)
         || av >= (AppleOS::MacOS, 13, 0)
         || av >= (AppleOS::MacCatalyst, 16, 0)
@@ -112,7 +112,7 @@ pub async fn set_badge_count(count: usize) -> Result<(), NotificationError> {
         Ok(())
     }
 
-    #[cfg(watchos)]
+    #[cfg(target_os="watchos")]
     Ok(())
 }
 
@@ -121,7 +121,7 @@ pub async fn set_badge_count(count: usize) -> Result<(), NotificationError> {
 /// Use this function at the first launch. use the `add_category` method when
 /// you need to add additional categories
 pub fn set_categories(categories: Vec<Category>) {
-    #[cfg(not(tvos))]
+    #[cfg(not(target_os="tvos"))]
     {
         let current_notification_center =
             unsafe { UNUserNotificationCenter::currentNotificationCenter() };
@@ -137,7 +137,7 @@ pub fn set_categories(categories: Vec<Category>) {
 
 /// Adding a single category after app initialized
 pub async fn add_category(category: Category) {
-    #[cfg(not(tvos))]
+    #[cfg(not(target_os="tvos"))]
     {
         let current_notification_center =
             unsafe { UNUserNotificationCenter::currentNotificationCenter() };

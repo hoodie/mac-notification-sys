@@ -107,7 +107,7 @@ impl TryInto<Id<UNNotificationRequest>> for Notification {
 
             notification_content.setBody(NSString::from_str(&self.body).as_ref());
 
-            #[cfg(not(tvos))]
+            #[cfg(not(target_os="tvos"))]
             {
                 let mut un_attachments =
                     NSMutableArray::<UNNotificationAttachment>::init(NSMutableArray::alloc());
@@ -144,7 +144,7 @@ impl TryInto<Id<UNNotificationRequest>> for Notification {
                 }
             }
 
-            #[cfg(not(any(tvos, macos)))]
+            #[cfg(not(any(target_os = "tvos", target_os = "macos")))]
             {
                 if let Some(launch_image_name) = self.launch_image_name {
                     let ns_str = NSString::from_str(&launch_image_name);
@@ -279,13 +279,13 @@ impl Into<Id<UNNotificationSound>> for Sound {
                     }
                 }
                 DefaultRingtone => {
-                    #[cfg(ios)]
+                    #[cfg(target_os = "ios")]
                     let sound = if av >= (AppleOS::IOS, 15, 2) || av >= (AppleOS::IOS, 15, 2) {
                         UNNotificationSound::defaultRingtoneSound()
                     } else {
                         UNNotificationSound::defaultSound()
                     };
-                    #[cfg(not(ios))]
+                    #[cfg(not(target_os = "ios"))]
                     let sound = UNNotificationSound::defaultSound();
                     sound
                 }
@@ -302,17 +302,17 @@ impl Into<Id<UNNotificationSound>> for Sound {
                     }
                 }
                 Named(name) => {
-                    #[cfg(not(watchos))]
+                    #[cfg(not(target_os="watchos"))]
                     let sound = {
                         let ns_str = NSString::from_str(&name);
                         UNNotificationSound::soundNamed(&ns_str)
                     };
-                    #[cfg(watchos)]
+                    #[cfg(target_os="watchos")]
                     let sound = UNNotificationSound::defaultSound();
                     sound
                 }
                 CriticalSoundNamed(name) => {
-                    #[cfg(not(watchos))]
+                    #[cfg(not(target_os="watchos"))]
                     let sound = if av >= (AppleOS::IOS, 12, 0)
                         || av >= (AppleOS::MacOS, 10, 14)
                         || av >= (AppleOS::MacCatalyst, 13, 1)
@@ -323,12 +323,12 @@ impl Into<Id<UNNotificationSound>> for Sound {
                     } else {
                         UNNotificationSound::defaultSound()
                     };
-                    #[cfg(watchos)]
+                    #[cfg(target_os="watchos")]
                     let sound = UNNotificationSound::defaultSound();
                     sound
                 }
                 CriticalSoundNamedWithVolume(name, volume) => {
-                    #[cfg(not(watchos))]
+                    #[cfg(not(target_os="watchos"))]
                     let sound = if av >= (AppleOS::IOS, 12, 0)
                         || av >= (AppleOS::MacOS, 10, 14)
                         || av >= (AppleOS::MacCatalyst, 13, 1)
@@ -339,19 +339,19 @@ impl Into<Id<UNNotificationSound>> for Sound {
                     } else {
                         UNNotificationSound::defaultSound()
                     };
-                    #[cfg(watchos)]
+                    #[cfg(target_os="watchos")]
                     let sound = UNNotificationSound::defaultSound();
                     sound
                 }
                 RingtoneSoundNamed(_name) => {
-                    #[cfg(ios)]
+                    #[cfg(target_os="ios")]
                     let sound = if av >= (AppleOS::IOS, 15, 2) || av >= (AppleOS::IOS, 15, 2) {
                         let ns_str = NSString::from_str(&_name);
                         UNNotificationSound::ringtoneSoundNamed(&ns_str)
                     } else {
                         UNNotificationSound::defaultSound()
                     };
-                    #[cfg(not(ios))]
+                    #[cfg(not(target_os="ios"))]
                     let sound = UNNotificationSound::defaultSound();
                     sound
                 }
@@ -903,7 +903,7 @@ impl Into<Id<UNNotificationCategory>> for Category {
             let ns_identifier = NSString::from_str(&self.identifier);
             let opt = self.options.bits();
 
-            #[cfg(not(tvos))]
+            #[cfg(not(target_os="tvos"))]
             let (intent_identifiers, actions) = {
                 let mut intent_identifiers =
                     NSMutableArray::<NSString>::init(NSMutableArray::alloc());
@@ -921,7 +921,7 @@ impl Into<Id<UNNotificationCategory>> for Category {
 
                 (intent_identifiers, actions)
             };
-            #[cfg(tvos)]
+            #[cfg(target_os="tvos")]
             let (intent_identifiers, actions) = {
                 let intent_identifiers = NSMutableArray::init(NSMutableArray::alloc());
                 let actions = NSMutableArray::init(NSMutableArray::alloc());
@@ -1191,14 +1191,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    #[cfg(not(feature="otheros"))]
     pub fn test_convert_sound_default() {
         let sound = Sound::Default;
         let _un_sound: Id<UNNotificationSound> = sound.into();
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    #[cfg(not(feature="otheros"))]
     pub fn test_convert_sound_named() {
         let sound = Sound::Named(String::from("test"));
         let _un_sound: Id<UNNotificationSound> = sound.into();
@@ -1279,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_trigger_with_cron_repeats() {
         let cron_schedule = Schedule::try_from("30 45 18 * * * *").unwrap();
         let trigger = Trigger {
@@ -1310,13 +1310,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_image() {
         assert!(execute_attachment_test("test.png", None).is_ok());
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_image_crop() {
         let res = execute_attachment_test(
             "test.png",
@@ -1332,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_image_hidden() {
         let res = execute_attachment_test(
             "test.png",
@@ -1354,7 +1354,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_image_type_hint() {
         let res = execute_attachment_test(
             "test",
@@ -1376,7 +1376,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_animated_image_cropped() {
         let res = execute_attachment_test(
             "test.gif",
@@ -1394,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_animated_image_hidden() {
         let res = execute_attachment_test(
             "test.gif",
@@ -1420,7 +1420,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_animated_image_type_hint() {
         let res = execute_attachment_test(
             "test.gif",
@@ -1446,7 +1446,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_animated_image_frame_number() {
         let res = execute_attachment_test(
             "test.gif",
@@ -1461,7 +1461,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_animated_image_cropped_frame_number() {
         let res = execute_attachment_test(
             "test.gif",
@@ -1480,14 +1480,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_movie() {
         let res = execute_attachment_test("test.mp4", None);
         assert!(res.is_ok());
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_movie_time_start() {
         let res = execute_attachment_test(
             "test.mp4",
@@ -1500,7 +1500,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_movie_time_end() {
         let res = execute_attachment_test(
             "test.mp4",
@@ -1513,7 +1513,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_movie_time_duration() {
         let res = execute_attachment_test(
             "test.mp4",
@@ -1526,7 +1526,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_movie_cropped() {
         let res = execute_attachment_test(
             "test.mp4",
@@ -1542,7 +1542,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_movie_hide() {
         let res = execute_attachment_test(
             "test.mp4",
@@ -1564,7 +1564,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_movie_type_hint() {
         let formats = vec![
             VideoFormat::MPEG,
@@ -1585,14 +1585,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_audio() {
         let res = execute_attachment_test("test.mp3", None);
         assert!(res.is_ok());
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_attachment_audio_type_hint() {
         let formats = vec![
             AudioFormat::MP3,
@@ -1612,7 +1612,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_action() {
         let action = Action {
             identifier: String::from("test"),
@@ -1625,7 +1625,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_action_with_system_icon() {
         let action = Action {
             identifier: String::from("test"),
@@ -1638,7 +1638,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_action_with_template_icon() {
         let action = Action {
             identifier: String::from("test"),
@@ -1651,7 +1651,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_action_with_options() {
         let action = Action {
             identifier: String::from("test"),
@@ -1664,7 +1664,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_notification() {
         let notification = Notification {
             body: String::from("Test"),
@@ -1677,7 +1677,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_notification_all() {
         let mut user_info = HashMap::new();
         user_info.insert(String::from("test"), String::from("test"));
@@ -1724,7 +1724,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_category() {
         let category = Category {
             identifier: String::from("test"),
@@ -1735,7 +1735,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(otheros))]
+    // #[cfg(not(otheros))]
     pub fn test_convert_category_all() {
         let category = Category {
             identifier: String::from("test"),

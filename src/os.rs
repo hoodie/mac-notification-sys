@@ -1,30 +1,44 @@
 //! Helper to detect os and check API availability
 use core::cmp::Ordering;
 
-use lazy_static::lazy_static;
 use icrate::Foundation::NSProcessInfo;
+use lazy_static::lazy_static;
 
 lazy_static! {
     pub static ref APPLE_VERSION: AppleVersion = {
-        #[cfg(any(watchos, ios, macos, catalyst))]
+        #[cfg(any(
+            target_os = "watchos",
+            target_os = "ios",
+            target_os = "macos",
+            // target_os = "catalyst"
+        ))]
         {
-            #[cfg(watchos)]
+            #[cfg(target_os = "watchos")]
             let os: AppleOS = AppleOS::WatchOS;
 
-            #[cfg(macos)]
+            #[cfg(target_os = "macos")]
             let os: AppleOS = AppleOS::MacOS;
 
-            #[cfg(catalyst)]
-            let os: AppleOS = AppleOS::MacCatalyst;
+            // #[cfg(target_os = "catalyst")]
+            // let os: AppleOS = AppleOS::MacCatalyst;
 
-            #[cfg(ios)]
+            #[cfg(target_os = "ios")]
             let os: AppleOS = AppleOS::IOS;
 
             let p_info = NSProcessInfo::processInfo();
             let os_version = p_info.operatingSystemVersion();
-            AppleVersion(os, os_version.majorVersion as u16, os_version.minorVersion as u16)
+            AppleVersion(
+                os,
+                os_version.majorVersion as u16,
+                os_version.minorVersion as u16,
+            )
         }
-        #[cfg(not(any(watchos, ios, macos, catalyst)))]
+        #[cfg(not(any(
+            target_os = "watchos",
+            target_os = "ios",
+            target_os = "macos",
+            // target_os = "catalyst"
+        )))]
         {
             AppleVersion(AppleOS::None, 0, 0)
         }
@@ -39,8 +53,8 @@ pub enum AppleOS {
     WatchOS,
     VisionOS,
     IOS,
-    #[cfg(otheros)]
-    None,
+    // #[cfg(feature = "otheros")]
+    // None,
 }
 
 #[derive(Copy, Clone, Debug)]
