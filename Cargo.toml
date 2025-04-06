@@ -22,8 +22,8 @@ include = ["Cargo.toml", "src/*.rs"]
 name = "simple"
 
 [dependencies]
-objc2 = "0.4.0"
-icrate = { version = "0.0.3", features = [
+objc2 = "0.5"
+icrate = { version = "0.1.2", features = [
   "Foundation",
   "Foundation_NSProcessInfo",
   "Foundation_NSDate",
