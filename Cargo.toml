@@ -1,7 +1,10 @@
 [package]
 name = "mac-notification-sys"
 version = "0.6.12"
-authors = ["Felix Döring <development@felixdoering.com>", "Hendrik Sollich <hendrik@hoodie.de>"]
+authors = [
+    "Felix Döring <development@felixdoering.com>",
+    "Hendrik Sollich <hendrik@hoodie.de>",
+]
 description = "Thin wrapper around macOS Notifications."
 edition = "2024"
 rust-version = "1.85"
@@ -24,7 +27,22 @@ targets = ["aarch64-apple-darwin"]
 [dependencies]
 objc2-foundation = "0.3"
 objc2 = "0.6"
+objc2-user-notifications = "0.3"
+block2 = "0.6"
 time = "0.3"
+thiserror = "2.0.18"
+futures-lite = "2.6.1"
+futures-channel = "0.3.32"
+log = "0.4"
+
+[package.metadata.bundle]
+name = "mac-notification-sys-example"
+identifier = "com.github.h4llow3En.mac-notification-sys.example"
+version = "0.1.0"
+short_description = "mac-notification-sys example"
 
 [build-dependencies]
 cc = "1.2"
+
+[dev-dependencies]
+oslog = "0.2"

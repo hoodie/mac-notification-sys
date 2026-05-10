@@ -16,7 +16,8 @@
 #![allow(improper_ctypes)]
 
 pub mod error;
-mod notification;
+pub mod notification; // TODO: don't make this public, yet
+pub mod un;
 
 use error::{ApplicationError, NotificationError, NotificationResult};
 pub use notification::{MainButton, Notification, NotificationResponse, Sound};
