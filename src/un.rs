@@ -39,8 +39,14 @@ mod auth;
 mod send;
 mod worker;
 
+pub mod action;
+pub(super) mod delegate;
+pub mod response;
+
+pub use action::Action;
 pub use auth::{request_auth, request_auth_blocking};
-pub use send::{send, send_blocking};
+pub use response::NotificationResponse;
+pub use send::{send, send_blocking, send_with_actions, send_with_actions_blocking};
 
 /// Errors that can be returned by the `un` module.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -91,6 +97,7 @@ pub struct Notification {
     body: String,
     subtitle: Option<String>,
     sound: Option<Sound>,
+    actions: Vec<Action>,
 }
 
 impl Notification {
@@ -117,6 +124,18 @@ impl Notification {
         self
     }
 
+    /// Add an action button to this notification.
+    ///
+    /// Actions are registered with macOS automatically when the notification is
+    /// sent — no manual category registration is needed.
+    ///
+    /// See [`Action`] for how to mark an action as destructive or requiring
+    /// authentication.
+    pub fn action(mut self, action: Action) -> Self {
+        self.actions.push(action);
+        self
+    }
+
     /// Play the default system notification sound.
     pub fn default_sound(mut self) -> Self {
         self.sound = Some(Sound::Default);
@@ -129,7 +148,12 @@ impl Notification {
         self
     }
 
-    fn build(self) -> objc2::rc::Retained<UNMutableNotificationContent> {
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        objc2::rc::Retained<UNMutableNotificationContent>,
+        Vec<Action>,
+    ) {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(&self.title));
         content.setBody(&NSString::from_str(&self.body));
@@ -147,7 +171,7 @@ impl Notification {
                 ))));
             }
         }
-        content
+        (content, self.actions)
     }
 }
 

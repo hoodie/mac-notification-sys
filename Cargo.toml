@@ -27,7 +27,15 @@ targets = ["aarch64-apple-darwin"]
 [dependencies]
 objc2-foundation = "0.3"
 objc2 = "0.6"
-objc2-user-notifications = "0.3"
+objc2-user-notifications = { version = "0.3", features = [
+    "UNNotificationAction",
+    "UNNotificationCategory",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotification",
+    "UNUserNotificationCenter",
+] }
+
 block2 = "0.6"
 time = "0.3"
 thiserror = "2.0.18"
