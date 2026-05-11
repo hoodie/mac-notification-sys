@@ -1,3 +1,4 @@
+//! This example works without having to worry about NSRunLoop because we don't bother about the response delegate
 use std::{thread, time::Duration};
 
 use futures_lite::future;
