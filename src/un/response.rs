@@ -18,6 +18,15 @@ pub struct NotificationResponse {
     /// [`is_default_action`]: NotificationResponse::is_default_action
     /// [`is_dismiss_action`]: NotificationResponse::is_dismiss_action
     pub action_identifier: String,
+
+    /// The text typed by the user, if this was a text-input (reply) action.
+    ///
+    /// `None` for regular button actions, the default-action (body click), and
+    /// dismiss.  Use [`is_reply`] to check conveniently, or call
+    /// `.reply_text.as_deref()` to borrow the text as `&str`.
+    ///
+    /// [`is_reply`]: NotificationResponse::is_reply
+    pub reply_text: Option<String>,
 }
 
 impl NotificationResponse {
@@ -37,5 +46,14 @@ impl NotificationResponse {
     /// [apple]: https://developer.apple.com/documentation/usernotifications/unnotificationdismissactionidentifier
     pub fn is_dismiss_action(&self) -> bool {
         self.action_identifier == unsafe { UNNotificationDismissActionIdentifier.to_string() }
+    }
+
+    /// Returns `true` if the user submitted text via a text-input (reply) action.
+    ///
+    /// When `true`, [`reply_text`] holds the submitted string.
+    ///
+    /// [`reply_text`]: NotificationResponse::reply_text
+    pub fn is_reply(&self) -> bool {
+        self.reply_text.is_some()
     }
 }

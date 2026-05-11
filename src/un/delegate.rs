@@ -21,10 +21,12 @@ use std::sync::{Mutex, OnceLock};
 
 use futures_channel::oneshot;
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2::{AnyThread, define_class};
 use objc2_foundation::{NSObject, NSObjectProtocol};
 use objc2_user_notifications::{
-    UNNotificationResponse, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    UNNotificationResponse, UNTextInputNotificationResponse, UNUserNotificationCenter,
+    UNUserNotificationCenterDelegate,
 };
 
 use crate::un::response::NotificationResponse;
@@ -105,6 +107,18 @@ define_class!(
                  request_id={request_id:?} action={action_id:?}"
             );
 
+            // Try to downcast to UNTextInputNotificationResponse to capture
+            // any text the user typed in a reply action.
+            // downcast_ref calls isKindOfClass: internally and is safe.
+            let reply_text: Option<String> = {
+                let any: &AnyObject = response.as_ref();
+                any.downcast_ref::<UNTextInputNotificationResponse>()
+                    .map(|tr| tr.userText().to_string())
+            };
+            if let Some(ref text) = reply_text {
+                log::debug!("un::delegate: reply text = {text:?}");
+            }
+
             if let Some(tx) = pending()
                 .lock()
                 .expect("pending map poisoned")
@@ -112,6 +126,7 @@ define_class!(
             {
                 let resp = NotificationResponse {
                     action_identifier: action_id,
+                    reply_text,
                 };
                 if tx.send(resp).is_err() {
                     log::warn!(

@@ -17,17 +17,31 @@
 use objc2_foundation::{NSArray, NSSet, NSString};
 use objc2_user_notifications::{
     UNNotificationAction, UNNotificationActionOptions, UNNotificationCategory,
-    UNNotificationCategoryOptions, UNUserNotificationCenter,
+    UNNotificationCategoryOptions, UNTextInputNotificationAction, UNUserNotificationCenter,
 };
 
 use crate::un::worker;
 
-// ── Action ───────────────────────────────────────────────────────────────────
+/// Configuration for a text-input (reply) action.
+///
+/// Used with [`Action::reply`] to create a button that opens an inline text
+/// field when tapped.
+#[derive(Debug, Clone)]
+pub struct ReplyConfig {
+    /// Label on the submit button (e.g. `"Send"`).
+    pub button_title: String,
+    /// Placeholder text shown in the empty input field.
+    pub placeholder: String,
+}
 
 /// A single action button shown on a notification.
 ///
-/// Construct with [`Action::new`] and optionally mark it as destructive or
-/// requiring authentication.
+/// Construct with [`Action::new`] for a regular button or [`Action::reply`] for
+/// a text-input action, and optionally chain [`destructive`] or
+/// [`requires_authentication`].
+///
+/// [`destructive`]: Action::destructive
+/// [`requires_authentication`]: Action::requires_authentication
 #[derive(Debug, Clone)]
 pub struct Action {
     /// Identifier sent back in [`NotificationResponse::action_identifier`](`crate::un::NotificationResponse::action_identifier`).
@@ -39,6 +53,10 @@ pub struct Action {
     /// If `true` the user must authenticate (Touch ID / password) before the
     /// action fires.
     pub requires_authentication: bool,
+    /// If `Some`, the action opens an inline text field instead of firing
+    /// immediately; the typed text is delivered via
+    /// [`NotificationResponse::reply_text`](`crate::un::NotificationResponse::reply_text`).
+    pub reply: Option<ReplyConfig>,
 }
 
 impl Action {
@@ -49,6 +67,33 @@ impl Action {
             title: title.into(),
             destructive: false,
             requires_authentication: false,
+            reply: None,
+        }
+    }
+
+    /// Create a text-input action that opens a reply field when tapped.
+    ///
+    /// When the user submits their text, the response is delivered with
+    /// [`NotificationResponse::reply_text`](`crate::un::NotificationResponse::reply_text`)
+    /// set to `Some(typed_text)`.
+    ///
+    /// * `button_title` — label on the submit button (e.g. `"Send"`).
+    /// * `placeholder`  — greyed-out hint shown in the empty input field.
+    pub fn reply(
+        identifier: impl Into<String>,
+        title: impl Into<String>,
+        button_title: impl Into<String>,
+        placeholder: impl Into<String>,
+    ) -> Self {
+        Self {
+            identifier: identifier.into(),
+            title: title.into(),
+            destructive: false,
+            requires_authentication: false,
+            reply: Some(ReplyConfig {
+                button_title: button_title.into(),
+                placeholder: placeholder.into(),
+            }),
         }
     }
 
@@ -74,8 +119,11 @@ impl Action {
         self
     }
 
-    /// Build the Objective-C `UNNotificationAction`.
-    fn build(&self) -> objc2::rc::Retained<UNNotificationAction> {
+    /// Build the Objective-C action object.
+    ///
+    /// Returns a `UNTextInputNotificationAction` (upcast to its superclass)
+    /// when `reply` is configured, and a plain `UNNotificationAction` otherwise.
+    pub(crate) fn build(&self) -> objc2::rc::Retained<UNNotificationAction> {
         let mut options = UNNotificationActionOptions::empty();
         if self.destructive {
             options |= UNNotificationActionOptions::Destructive;
@@ -83,11 +131,24 @@ impl Action {
         if self.requires_authentication {
             options |= UNNotificationActionOptions::AuthenticationRequired;
         }
-        UNNotificationAction::actionWithIdentifier_title_options(
-            &NSString::from_str(&self.identifier),
-            &NSString::from_str(&self.title),
-            options,
-        )
+        if let Some(reply) = &self.reply {
+            // UNTextInputNotificationAction is a direct subclass of
+            // UNNotificationAction; into_super() performs the safe upcast.
+            UNTextInputNotificationAction::actionWithIdentifier_title_options_textInputButtonTitle_textInputPlaceholder(
+                &NSString::from_str(&self.identifier),
+                &NSString::from_str(&self.title),
+                options,
+                &NSString::from_str(&reply.button_title),
+                &NSString::from_str(&reply.placeholder),
+            )
+            .into_super()
+        } else {
+            UNNotificationAction::actionWithIdentifier_title_options(
+                &NSString::from_str(&self.identifier),
+                &NSString::from_str(&self.title),
+                options,
+            )
+        }
     }
 }
 
