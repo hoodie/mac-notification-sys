@@ -2,6 +2,7 @@
 //!
 //! Owns a single background thread that pumps `NSRunLoop` continuously and runs arbitrary closures submitted from any thread.
 
+use super::delegate;
 use std::{
     sync::{OnceLock, mpsc},
     thread,
@@ -32,6 +33,14 @@ fn handle() -> &'static mpsc::Sender<Task> {
 }
 
 fn worker_loop(rx: mpsc::Receiver<Task>) {
+    // Install the delegate here so it is ready before any notification is
+    // scheduled.  Note: UNUserNotificationCenter always delivers
+    // `didReceiveNotificationResponse` on the *main* thread's run loop,
+    // regardless of which thread the delegate was installed from.  The main
+    // thread must pump NSRunLoop while waiting for a response — see
+    // `run_main_loop_while` in the public API.
+    delegate::install();
+
     let run_loop = NSRunLoop::currentRunLoop();
     loop {
         while let Ok(task) = rx.try_recv() {

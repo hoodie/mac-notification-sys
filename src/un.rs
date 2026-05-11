@@ -6,23 +6,75 @@
 //! - [`request_auth`] / [`request_auth_blocking`] — ask macOS
 //!   for permission to display notifications.
 //! - [`Notification`] — builder for the notification payload.
-//! - [`send`] / [`send_blocking`] — schedule a notification for immediate delivery.
+//! - [`send`] / [`send_blocking`] — schedule a fire-and-forget notification.
+//! - [`Notification::send_async`] / [`Notification::send_blocking`] — unified
+//!   entry point that automatically waits for user interaction when action
+//!   buttons are present.
+//! - [`run_main_loop_while`] — pump the main thread's `NSRunLoop`; required
+//!   by CLI tools and Tokio apps that use actionable notifications.
 //!
 //! # Threading model
 //!
-//! All Objective-C work executes on a single, lazily-spawned background thread
-//! (`worker`) that continuously pumps an `NSRunLoop`.  Notification-specific
-//! logic is submitted to that thread as a closure; the result is signalled back
-//! via a `futures_channel::oneshot` channel, which is compatible with any async
-//! executor (Tokio, async-std, futures, …).
+//! All Objective-C work runs on a single, lazily-spawned **worker thread** that
+//! continuously pumps its own `NSRunLoop`.
 //!
-//! **The preferred API is the async one:** simply `.await` [`send`] (or
-//! [`Notification::send_async`]) from any async context — Tokio, async-std,
-//! futures, or a bare `block_on` — and the calling task will park efficiently
-//! while the worker does its job.  Use [`send_blocking`] only from threads
-//! that are explicitly allowed to block (e.g. `tokio::task::spawn_blocking`,
-//! a plain `std::thread`, or a test body).  Calling [`send_blocking`] from
-//! inside a Tokio (or similar) worker task starves the thread pool.
+//! **`UNUserNotificationCenter` always delivers `didReceiveNotificationResponse`
+//! on the main thread's run loop**, regardless of which thread the delegate was
+//! installed from (this is documented Apple behaviour).  The main thread must
+//! therefore be pumping `NSRunLoop` while the user is expected to interact.
+//!
+//! ## macOS app bundles (`NSApplicationMain` / SwiftUI)
+//!
+//! The framework drives the main run loop automatically; `send_async` works
+//! out of the box from any async task or executor.
+//!
+//! ## Tokio / async-std CLI tools
+//!
+//! `#[tokio::main]` blocks the main thread inside Tokio's event loop;
+//! `NSRunLoop` is never pumped and callbacks never fire.
+//!
+//! The fix is to **keep the main thread free for `NSRunLoop`** and run the
+//! async runtime on background threads:
+//!
+//! ```no_run
+//! use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+//!
+//! fn main() {
+//!     // Multi-thread runtime lives entirely on background threads.
+//!     let rt = tokio::runtime::Builder::new_multi_thread()
+//!         .enable_all()
+//!         .build()
+//!         .unwrap();
+//!
+//!     let done = Arc::new(AtomicBool::new(false));
+//!     let done2 = done.clone();
+//!
+//!     rt.spawn(async move {
+//!         // ... your async code, using send_async() etc. ...
+//!         done2.store(true, Ordering::Release);
+//!     });
+//!
+//!     // Main thread pumps NSRunLoop until async work signals completion.
+//!     mac_notification_sys::un::run_main_loop_while(|| !done.load(Ordering::Acquire));
+//! }
+//! ```
+//!
+//! See `examples/un_actions_tokio.rs` for a complete working example.
+//!
+//! ## Blocking helper (`send_blocking` from any thread)
+//!
+//! `Notification::send_blocking` calls `block_on(send_async(...))` and parks
+//! the calling thread on the oneshot channel.  The callback still fires on the
+//! main thread, so the main thread must be pumping `NSRunLoop` concurrently.
+//! For command-line tools that don't use an async runtime at all, see
+//! `examples/un_actions.rs` which drives the run loop directly from main.
+//!
+//! ## "Clear All" caveat
+//!
+//! If the user clicks **"Clear All"** in Notification Center,
+//! `didReceiveNotificationResponse` is never called.  Without a timeout the
+//! future will never resolve.  Always set a timeout via [`Notification::timeout`]
+//! for actionable notifications.
 //!
 //! # Requirements
 //!
@@ -30,7 +82,10 @@
 //! ad-hoc signature is sufficient).  See the bundled examples for how to
 //! satisfy these requirements via `cargo-bundle`.
 
-use objc2_foundation::{NSBundle, NSString};
+use std::future::Future;
+use std::time::Duration;
+
+use objc2_foundation::{NSBundle, NSDate, NSDefaultRunLoopMode, NSRunLoop, NSString};
 use objc2_user_notifications::{UNMutableNotificationContent, UNNotificationSound};
 
 use crate::Sound;
@@ -48,6 +103,97 @@ pub use auth::{request_auth, request_auth_blocking};
 pub use response::NotificationResponse;
 pub use send::{send, send_blocking, send_with_actions, send_with_actions_blocking};
 
+/// Pump the main thread's `NSRunLoop` until `should_continue` returns `false`.
+///
+/// **Must be called from the main thread.**
+///
+/// `UNUserNotificationCenter` always delivers `didReceiveNotificationResponse`
+/// on the main thread's run loop.  In processes where the main thread is
+/// occupied by an async runtime (`#[tokio::main]`, `async-std`, …), that run
+/// loop is never pumped, so callbacks never fire and `send_async` hangs forever.
+///
+/// Call this on the main thread while your async work runs on background
+/// threads; return `false` from `should_continue` once all work is done.
+///
+/// # Example
+///
+/// ```no_run
+/// use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+///
+/// fn main() {
+///     let rt = tokio::runtime::Builder::new_multi_thread()
+///         .enable_all().build().unwrap();
+///
+///     let done = Arc::new(AtomicBool::new(false));
+///     let done2 = done.clone();
+///     rt.spawn(async move {
+///         // ... your async work ...
+///         done2.store(true, Ordering::Release);
+///     });
+///
+///     mac_notification_sys::un::run_main_loop_while(|| !done.load(Ordering::Acquire));
+/// }
+/// ```
+pub fn run_main_loop_while<F: Fn() -> bool>(should_continue: F) {
+    let run_loop = NSRunLoop::mainRunLoop();
+    while should_continue() {
+        let until = NSDate::dateWithTimeIntervalSinceNow(0.05);
+        unsafe { run_loop.runMode_beforeDate(NSDefaultRunLoopMode, &until) };
+    }
+}
+
+/// Run a future to completion on the main thread while pumping `NSRunLoop`.
+///
+/// **Must be called from the main thread.**  Drop-in replacement for
+/// `futures_lite::future::block_on` for CLI tools that want to `await`
+/// notification responses on the main thread.
+///
+/// The future is polled with a no-op waker; between polls, the main
+/// `NSRunLoop` is pumped for up to 50 ms.  This guarantees that
+/// `UNUserNotificationCenter` delegate callbacks fire and resolve any
+/// `oneshot` channels the future is awaiting.
+///
+/// Works for any `Future`, including `tokio::task::JoinHandle` — you can
+/// spawn work onto a Tokio runtime and `await` the handle inside the future
+/// passed here.
+///
+/// # GUI apps don't need this
+///
+/// Tauri, winit, AppKit and SwiftUI applications already pump `NSRunLoop`
+/// via their main event loop, so `send_async` works without any helper.  This
+/// function exists for headless CLI tools.
+///
+/// # Example
+///
+/// ```no_run
+/// use mac_notification_sys::un::{Notification, block_on_main};
+///
+/// fn main() {
+///     block_on_main(async {
+///         let _ = Notification::new()
+///             .title("Hi")
+///             .send_async()
+///             .await;
+///     });
+/// }
+/// ```
+pub fn block_on_main<F: Future>(future: F) -> F::Output {
+    use std::task::{Context, Poll};
+
+    let mut future = std::pin::pin!(future);
+    let waker = std::task::Waker::noop();
+    let mut cx = Context::from_waker(waker);
+
+    let run_loop = NSRunLoop::mainRunLoop();
+    loop {
+        if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
+            return output;
+        }
+        let until = NSDate::dateWithTimeIntervalSinceNow(0.05);
+        unsafe { run_loop.runMode_beforeDate(NSDefaultRunLoopMode, &until) };
+    }
+}
+
 /// Errors that can be returned by the `un` module.
 #[derive(Debug, Clone, thiserror::Error)]
 #[non_exhaustive]
@@ -62,6 +208,14 @@ pub enum Error {
     /// macOS rejected the notification scheduling request (e.g. no permission).
     #[error("macOS rejected the notification request")]
     NotificationRejected,
+
+    /// No user interaction was received within the allowed timeout.
+    ///
+    /// This happens when the notification is cleared without interaction
+    /// (e.g. "Clear All" in Notification Center) or the deadline simply
+    /// passes before the user acts.
+    #[error("Timed out waiting for notification response")]
+    ResponseTimeout,
 }
 
 /// Verify the process has a bundle identifier.
@@ -98,6 +252,11 @@ pub struct Notification {
     subtitle: Option<String>,
     sound: Option<Sound>,
     actions: Vec<Action>,
+    /// How long to wait for user interaction before giving up.
+    ///
+    /// Only relevant when the notification has action buttons.  `None` means
+    /// wait indefinitely (not recommended — see [`Error::ResponseTimeout`]).
+    pub(super) action_timeout: Option<Duration>,
 }
 
 impl Notification {
@@ -136,6 +295,24 @@ impl Notification {
         self
     }
 
+    /// Set how long to wait for the user to interact with this notification.
+    ///
+    /// Only meaningful when action buttons are present (see [`action`]).  If
+    /// the deadline passes before the user responds, [`send`] /
+    /// [`send_blocking`] return [`Error::ResponseTimeout`] and the pending
+    /// sender is cleaned up automatically.
+    ///
+    /// Without a timeout, "Clear All" in Notification Center will cause an
+    /// indefinite wait.
+    ///
+    /// [`action`]: Self::action
+    /// [`send`]: Self::send_async
+    /// [`send_blocking`]: Self::send_blocking
+    pub fn timeout(mut self, duration: Duration) -> Self {
+        self.action_timeout = Some(duration);
+        self
+    }
+
     /// Play the default system notification sound.
     pub fn default_sound(mut self) -> Self {
         self.sound = Some(Sound::Default);
@@ -153,6 +330,7 @@ impl Notification {
     ) -> (
         objc2::rc::Retained<UNMutableNotificationContent>,
         Vec<Action>,
+        Option<Duration>,
     ) {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(&self.title));
@@ -171,20 +349,42 @@ impl Notification {
                 ))));
             }
         }
-        (content, self.actions)
+        (content, self.actions, self.action_timeout)
     }
 }
 
 impl Notification {
-    /// Send the notification asynchronously, returning a [`Future`] that
-    /// resolves once macOS accepts or rejects the request.
-    pub async fn send_async(self) -> Result<(), Error> {
-        send(self).await
+    /// Send the notification, returning a [`Future`] that resolves once macOS
+    /// accepts or rejects the scheduling request.
+    ///
+    /// If the notification has action buttons (added via [`action`]), the
+    /// future resolves to `Ok(Some(response))` once the user interacts, or
+    /// `Err(`[`Error::ResponseTimeout`]`)` if the optional timeout elapses
+    /// first.  Notifications without actions resolve to `Ok(None)` as soon as
+    /// macOS accepts the request.
+    ///
+    /// [`action`]: Self::action
+    pub async fn send_async(self) -> Result<Option<NotificationResponse>, Error> {
+        if self.actions.is_empty() {
+            send(self).await.map(|()| None)
+        } else {
+            send_with_actions(self).await.map(Some)
+        }
     }
 
-    /// Send the notification synchronously, blocking the current thread until
-    /// macOS accepts or rejects the request.
-    pub fn send_blocking(self) -> Result<(), Error> {
-        send_blocking(self)
+    /// Send the notification, blocking the current thread.
+    ///
+    /// If the notification has action buttons (added via [`action`]), blocks
+    /// until the user interacts or the optional timeout elapses.  Returns
+    /// `Ok(Some(response))` on interaction, `Ok(None)` for plain
+    /// notifications, or `Err` on failure / timeout.
+    ///
+    /// [`action`]: Self::action
+    pub fn send_blocking(self) -> Result<Option<NotificationResponse>, Error> {
+        if self.actions.is_empty() {
+            send_blocking(self).map(|()| None)
+        } else {
+            send_with_actions_blocking(self).map(Some)
+        }
     }
 }

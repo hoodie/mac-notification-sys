@@ -32,6 +32,13 @@ use crate::un::response::NotificationResponse;
 // ── Shared sender map ─────────────────────────────────────────────────────────
 
 /// Global map: request-id → oneshot sender waiting for the user's response.
+///
+/// Entries are removed when `didReceiveNotificationResponse` fires — which
+/// covers all explicit interactions including dismiss (via `CustomDismissAction`).
+/// The one case that does NOT fire the delegate is the user clicking
+/// "Clear All" in the notification center, which leaves the sender in this
+/// map until the process exits. For typical use (a small number of concurrent
+/// actionable notifications) this is acceptable.
 static PENDING: OnceLock<Mutex<HashMap<String, oneshot::Sender<NotificationResponse>>>> =
     OnceLock::new();
 
@@ -49,6 +56,22 @@ pub(super) fn register_response_sender(
         .lock()
         .expect("pending map poisoned")
         .insert(request_id, tx);
+}
+
+/// Remove and drop any pending sender for `request_id`.
+///
+/// Called when a caller gives up waiting (timeout / future dropped) so the map
+/// does not grow without bound. Dropping the sender causes the corresponding
+/// `oneshot::Receiver` to resolve to `Err(Canceled)`, which callers should
+/// never observe because they already decided to stop waiting.
+pub(super) fn deregister_response_sender(request_id: &str) {
+    let removed = pending()
+        .lock()
+        .expect("pending map poisoned")
+        .remove(request_id);
+    if removed.is_some() {
+        log::debug!("un::delegate: deregistered pending sender for {request_id:?}");
+    }
 }
 
 // ── Objective-C delegate class ────────────────────────────────────────────────
@@ -120,12 +143,18 @@ impl NotificationDelegate {
 
 /// Install the delegate on `UNUserNotificationCenter`.
 ///
-/// Must be called from the main thread. macOS delivers
-/// `didReceiveNotificationResponse` on the main thread's run loop, so the
-/// delegate must be installed there for callbacks to fire.
+/// **`UNUserNotificationCenter` always delivers `didReceiveNotificationResponse`
+/// on the main thread's run loop**, regardless of which thread this function is
+/// called from.  The main thread must therefore pump `NSRunLoop` while a
+/// response is awaited — see [`run_main_loop_while`] in the parent module.
 ///
-/// Called once from [`send_with_actions_blocking`] before pumping the main
-/// run loop, and from the async path before awaiting the response.
+/// We call this from the worker thread at startup so the delegate is ready
+/// before any notification is scheduled.  The install thread does not affect
+/// callback delivery.
+///
+/// Safe to call multiple times — the `OnceLock` ensures a single install.
+///
+/// [`run_main_loop_while`]: crate::un::run_main_loop_while
 pub(super) fn install() {
     static DELEGATE: OnceLock<Retained<NotificationDelegate>> = OnceLock::new();
     DELEGATE.get_or_init(|| {

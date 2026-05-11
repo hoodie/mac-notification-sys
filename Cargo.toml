@@ -54,3 +54,4 @@ cc = "1.2"
 
 [dev-dependencies]
 oslog = "0.2"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }

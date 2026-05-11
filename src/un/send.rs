@@ -2,30 +2,72 @@ use super::{Error, Notification, check_bundle};
 use crate::un::{action::ActionCategory, delegate, response::NotificationResponse, worker};
 use block2::RcBlock;
 use futures_channel::oneshot;
-use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSError, NSRunLoop, NSString, NSUUID};
+use objc2_foundation::{NSError, NSString, NSUUID};
 use objc2_user_notifications::{UNNotificationRequest, UNUserNotificationCenter};
-use std::{cell::Cell, future::Future};
+use std::{cell::Cell, future::Future, time::Duration};
 
-/// Schedule a notification on the worker thread.
+// ── Pending-response guard ────────────────────────────────────────────────────
+
+/// Couples a `request_id` to a `oneshot::Receiver<NotificationResponse>`.
 ///
-/// Resolves once macOS accepts or rejects the request. If `response_tx` is
-/// `Some`, it is registered with the delegate before scheduling so the caller
-/// can also wait for the user's interaction.
+/// When this guard is dropped the corresponding sender is removed from the
+/// global `PENDING` map so the map never grows without bound.  The
+/// `into_receiver` method consumes the guard *without* triggering
+/// deregistration — used by callers that successfully read from the channel.
+struct PendingGuard {
+    request_id: String,
+    rx: Option<oneshot::Receiver<NotificationResponse>>,
+}
+
+impl PendingGuard {
+    fn new(request_id: String, rx: oneshot::Receiver<NotificationResponse>) -> Self {
+        Self {
+            request_id,
+            rx: Some(rx),
+        }
+    }
+
+    /// Consume the guard and return the receiver without deregistering.
+    ///
+    /// The caller is responsible for driving the receiver to completion (or
+    /// dropping it, which is fine — the sender side is already gone by then).
+    fn into_receiver(mut self) -> oneshot::Receiver<NotificationResponse> {
+        self.rx.take().expect("receiver already consumed")
+    }
+}
+
+impl Drop for PendingGuard {
+    fn drop(&mut self) {
+        // rx is Some when we are dropping without having consumed it — meaning
+        // we timed out or the future was cancelled.  Clean up the sender so
+        // the PENDING map doesn't leak.
+        if self.rx.is_some() {
+            delegate::deregister_response_sender(&self.request_id);
+        }
+    }
+}
+
+// ── schedule_inner ────────────────────────────────────────────────────────────
+
+/// Core scheduling logic.
+///
+/// Dispatches onto the worker thread, registers the optional response sender
+/// *before* the request is added to the center (ensuring no race), and returns
+/// a `Future` that resolves once macOS has accepted or rejected the request.
+///
+/// On success the future resolves to `Ok(Some(guard))` when `response_tx` was
+/// provided, or `Ok(None)` for fire-and-forget sends.
 fn schedule_inner(
     content: Notification,
     response_tx: Option<oneshot::Sender<NotificationResponse>>,
+    request_id: String,
 ) -> impl Future<Output = Result<(), Error>> + Send + 'static {
     let (scheduled_tx, scheduled_rx) = oneshot::channel::<Result<(), Error>>();
 
     worker::dispatch(move || {
-        let (un_content, actions) = content.into_parts();
-        let request_id = NSUUID::new().UUIDString().to_string();
+        let (un_content, actions, _timeout) = content.into_parts();
         log::debug!("un::schedule: request_id={request_id:?}");
 
-        // If the notification carries action buttons, synthesise a category
-        // identifier from the sorted action IDs and register it on the center
-        // before scheduling. Categories are process-local and not persisted
-        // between launches, so we always re-register.
         if !actions.is_empty() {
             let category_id = {
                 let mut ids: Vec<&str> = actions.iter().map(|a| a.identifier.as_str()).collect();
@@ -38,8 +80,6 @@ fn schedule_inner(
         }
 
         if let Some(tx) = response_tx {
-            // Register before scheduling — the delegate must never fire before
-            // the sender is in the map.
             delegate::register_response_sender(request_id.clone(), tx);
         }
 
@@ -78,63 +118,105 @@ fn schedule_inner(
     }
 }
 
+// ── Timer helper ──────────────────────────────────────────────────────────────
+
+/// Returns a `Future` that resolves after `duration` by sleeping a background
+/// thread.  Uses no external timer crate — just a `oneshot` channel and
+/// `std::thread::spawn`.
+fn sleep_future(duration: Duration) -> impl Future<Output = ()> + Send + 'static {
+    let (tx, rx) = oneshot::channel::<()>();
+    std::thread::Builder::new()
+        .name("un-timeout".into())
+        .spawn(move || {
+            std::thread::sleep(duration);
+            let _ = tx.send(());
+        })
+        .expect("failed to spawn timeout thread");
+    async move {
+        let _ = rx.await;
+    }
+}
+
+// ── Public send functions ─────────────────────────────────────────────────────
+
 /// Schedule a notification for immediate delivery via `UNUserNotificationCenter`.
 ///
 /// Returns a [`Future`] that resolves once macOS accepts or rejects the request.
 pub async fn send(content: Notification) -> Result<(), Error> {
     check_bundle()?;
-    schedule_inner(content, None).await
+    let request_id = NSUUID::new().UUIDString().to_string();
+    schedule_inner(content, None, request_id).await
 }
 
 /// Schedule a notification for immediate delivery, blocking the calling thread.
 pub fn send_blocking(content: Notification) -> Result<(), Error> {
     check_bundle()?;
-    futures_lite::future::block_on(schedule_inner(content, None))
+    let request_id = NSUUID::new().UUIDString().to_string();
+    futures_lite::future::block_on(schedule_inner(content, None, request_id))
 }
 
 // ── send_with_actions ─────────────────────────────────────────────────────────
 
 /// Schedule a notification with action buttons and wait for the user's response.
 ///
-/// [`ActionCategory`]: crate::un::action::ActionCategory
+/// The delegate is installed on the worker thread (which continuously pumps
+/// `NSRunLoop`), so callbacks are delivered there and wake the returned future
+/// regardless of which thread or executor the caller uses.  This means the
+/// async path works correctly from Tokio tasks, `async-std`, bare `block_on`,
+/// or any other executor — no main-thread involvement required.
+///
+/// `timeout` is taken from [`Notification::timeout`].  Pass `None` to wait
+/// indefinitely (not recommended — "Clear All" in Notification Center will
+/// cause the future to never resolve).
+///
+/// Returns `Err(`[`Error::ResponseTimeout`]`)` if the deadline passes before
+/// the user interacts with the notification.
 pub async fn send_with_actions(content: Notification) -> Result<NotificationResponse, Error> {
     check_bundle()?;
-    delegate::install();
+    // Delegate is already installed on the worker thread at worker startup.
+    // No main-thread interaction needed.
+
+    let request_id = NSUUID::new().UUIDString().to_string();
     let (response_tx, response_rx) = oneshot::channel();
-    schedule_inner(content, Some(response_tx)).await?;
-    response_rx.await.map_err(|_| Error::NotificationRejected)
-}
+    let timeout = content.action_timeout;
+    let guard = PendingGuard::new(request_id.clone(), response_rx);
 
-/// Schedule a notification with action buttons, blocking until the user responds.
-///
-/// Installs the delegate on the main thread and pumps the main run loop while
-/// waiting, so macOS can deliver the delegate callback.
-pub fn send_with_actions_blocking(content: Notification) -> Result<NotificationResponse, Error> {
-    check_bundle()?;
-    delegate::install();
-    let (response_tx, mut response_rx) = oneshot::channel();
-    let mut fut = std::pin::pin!(schedule_inner(content, Some(response_tx)));
+    schedule_inner(content, Some(response_tx), request_id).await?;
 
-    // Drive the future once to kick off the worker dispatch, which also
-    // resolves the scheduling half (accepted/rejected by macOS).
-    let result =
-        futures_lite::future::block_on(async { futures_lite::future::poll_once(&mut fut).await });
-    if let Some(result) = result {
-        // Scheduling itself failed — no point waiting for a response.
-        return result.and(Err(Error::NotificationRejected));
-    }
-
-    // Scheduling accepted. Now pump the main run loop so macOS can deliver
-    // didReceiveNotificationResponse on the main thread, and poll response_rx
-    // after each tick.
-    let run_loop = NSRunLoop::currentRunLoop();
-    let waker = std::task::Waker::noop();
-    let mut cx = std::task::Context::from_waker(&waker);
-    loop {
-        let until = NSDate::dateWithTimeIntervalSinceNow(0.05);
-        unsafe { run_loop.runMode_beforeDate(NSDefaultRunLoopMode, &until) };
-        if let std::task::Poll::Ready(result) = std::pin::Pin::new(&mut response_rx).poll(&mut cx) {
-            return result.map_err(|_| Error::NotificationRejected);
+    match timeout {
+        None => guard
+            .into_receiver()
+            .await
+            .map_err(|_| Error::NotificationRejected),
+        Some(duration) => {
+            futures_lite::future::or(
+                async {
+                    guard
+                        .into_receiver()
+                        .await
+                        .map_err(|_| Error::NotificationRejected)
+                },
+                async move {
+                    sleep_future(duration).await;
+                    Err(Error::ResponseTimeout)
+                },
+            )
+            .await
         }
     }
+}
+
+/// Schedule a notification with action buttons, blocking until the user
+/// responds or the timeout elapses.
+///
+/// Blocks the calling thread using `futures_lite::future::block_on`.  The
+/// delegate fires on the worker thread so the main thread is never touched;
+/// this function is safe to call from any thread including Tokio's
+/// `spawn_blocking` pool.
+///
+/// Returns `Err(`[`Error::ResponseTimeout`]`)` if the deadline passes before
+/// the user interacts with the notification.
+pub fn send_with_actions_blocking(content: Notification) -> Result<NotificationResponse, Error> {
+    check_bundle()?;
+    futures_lite::future::block_on(send_with_actions(content))
 }

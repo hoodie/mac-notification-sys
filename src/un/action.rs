@@ -30,7 +30,7 @@ use crate::un::worker;
 /// requiring authentication.
 #[derive(Debug, Clone)]
 pub struct Action {
-    /// Identifier sent back in [`NotificationResponse::action_identifier`].
+    /// Identifier sent back in [`NotificationResponse::action_identifier`](`crate::un::NotificationResponse::action_identifier`).
     pub identifier: String,
     /// Label shown on the button.
     pub title: String,
@@ -135,7 +135,7 @@ impl ActionCategory {
             &NSString::from_str(&self.identifier),
             &actions_array,
             &NSArray::new(),
-            UNNotificationCategoryOptions::empty(),
+            UNNotificationCategoryOptions::CustomDismissAction,
         )
     }
 
